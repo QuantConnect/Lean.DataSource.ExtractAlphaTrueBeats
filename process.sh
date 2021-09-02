@@ -6,9 +6,35 @@
 # FTP_HOST
 # FTP_USERNAME
 # FTP_PASSWORD
+# S3_BUCKET_NAME
 
+# Optional environment variables:
+# 
+# S3_OPTIONS
+
+S3_OPTIONS="${S3_OPTIONS:-}"
 TRUEBEATS_FILE_PREFIXES=( "ExtractAlpha_All_TrueBeats_EPS_US" "ExtractAlpha_All_TrueBeats_SALES_US" "ExtractAlpha_FQ1_TrueBeats_EPS_US" "ExtractAlpha_FQ1_TrueBeats_SALES_US" "Fiscal_Periods_EPSSales_US" )
 
+
+function sync_to_s3 {
+    echo "Begin syncing data to S3 for date: ${QC_DATAFLEET_DEPLOYMENT_DATE}"
+    
+    for file_prefix in ${TRUEBEATS_FILE_PREFIXES[@]}; do
+        file_name="${file_prefix}_${QC_DATAFLEET_DEPLOYMENT_DATE}.csv"
+        
+        aws s3 cp ${file_name} ${S3_OPTIONS} s3://${S3_BUCKET_NAME}/alternative/extractalpha/truebeats/
+        exit_code=$?
+        
+        if [ "${exit_code}" -ne 0 ]; then
+            echo "Download failed for file: ${file_name} - Exiting with code ${exit_code}"
+            return ${exit_code}
+        fi;
+        
+        echo "Successfully completed sync to S3 for file: ${file_name}"
+    done;
+    
+    echo "Successfully completed S3 sync for date: ${QC_DATAFLEET_DEPLOYMENT_DATE}"
+}
 
 function ftp_download_truebeats {
     for file_prefix in ${TRUEBEATS_FILE_PREFIXES[@]}; do
@@ -22,6 +48,14 @@ function ftp_download_truebeats {
     done;
 
     lftp -u "${FTP_USERNAME}":"${FTP_PASSWORD}" "ftp://${FTP_HOST}" -e "${download_command}; exit"
+    exit_code=$?
+    if [ "${exit_code}" -ne 0 ]; then
+        echo "Download from FTP host ${FTP_HOST} failed. Exiting with code ${exit_code}"
+        exit ${exit_code}
+    fi;
+    
+    echo "Successfully finished downloading data from the FTP for date: ${QC_DATAFLEET_DEPLOYMENT_DATE}"
+    sync_to_s3
 }
 
 ftp_download_truebeats

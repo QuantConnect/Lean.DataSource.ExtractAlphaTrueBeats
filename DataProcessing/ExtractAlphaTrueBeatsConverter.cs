@@ -10,7 +10,7 @@ using QuantConnect.Logging;
 namespace QuantConnect.DataProcessing
 {
     /// <summary>
-    /// Converts TrueBeats data into CSV parsable by the Reader(...) method of <see cref="ExtractAlphaTrueBeat"/>
+    /// Converts TrueBeats data into CSV lines parsable by the Reader(...) method of <see cref="ExtractAlphaTrueBeat"/>
     /// </summary>
     public class ExtractAlphaTrueBeatsConverter
     {
@@ -71,120 +71,143 @@ namespace QuantConnect.DataProcessing
         {
             var processingData = ParseFiscalPeriods();
 
-            // The order we call these two functions in matters for now, but
-            // won't in the future once I can filter duplicates more reliably.
-            ParseTrueBeats(processingData, false);
-            ParseTrueBeats(processingData, true);
-
+            ParseTrueBeats(processingData);
             WriteToFile(processingData);
         }
         
         /// <summary>
-        /// Parses raw TrueBeats data for EPS/Sales (revenue) 
+        /// Parses raw TrueBeats data for EPS/Revenue
         /// </summary>
-        /// <param name="fiscalPeriods"></param>
-        /// <param name="allQuarters"></param>
-        protected void ParseTrueBeats(Dictionary<string, List<ExtractAlphaProcessingData>> fiscalPeriods, bool allQuarters)
+        /// <param name="trueBeats">The TrueBeats data parsed so far containing the fiscal periods of the data</param>
+        protected void ParseTrueBeats(Dictionary<string, List<ExtractAlphaTrueBeat>> trueBeats)
         {
-            foreach (var earningsMetric in _earningsMetrics)
+            // Process the TrueBeats "All" dataset and then joins it with the "FQ1" dataset.
+            var allQuarters = false;
+
+            do
             {
-                foreach (var line in GetTrueBeatsRawLines(earningsMetric, allQuarters))
+                // Once we begin processing "FQ1", this variable will be equal
+                // to false and end the loop.
+                allQuarters = !allQuarters;
+
+                foreach (var earningsMetric in _earningsMetrics)
                 {
-                    if (!char.IsNumber(line.FirstOrDefault()))
+                    foreach (var line in GetTrueBeatsRawLines(earningsMetric, allQuarters))
                     {
-                        // Skips the CSV header line and empty lines
-                        continue;
-                    }
-                    
-                    var csv = line.Split(',');
-
-                    var ticker = csv[_tickerIndex];
-                    if (!fiscalPeriods.TryGetValue(ticker, out var symbolFiscalPeriods))
-                    {
-                        symbolFiscalPeriods = new List<ExtractAlphaProcessingData>();
-                        fiscalPeriods[ticker] = symbolFiscalPeriods;
-                    }
-
-                    var (fiscalYear, fiscalQuarter) = ExtractAlphaProcessingData.ParseFiscalPeriod(csv[_fiscalPeriodIndex]);
-                    if (!allQuarters && symbolFiscalPeriods.Any(x => 
-                        x.EarningsMetric == earningsMetric &&
-                        x.Data != null &&
-                        x.FiscalPeriod.FiscalYear == fiscalYear &&
-                        x.FiscalPeriod.FiscalQuarter == fiscalQuarter))
-                    {
-                        // We've encountered a duplicate Symbol while processing the FQ1 TrueBeats dataset, and
-                        // the first piece of data has already been included.
-                        // Majority of the duplicated symbols in the raw data will have duplicate data
-                        // that equals another line in the same file. However, sometimes this isn't true
-                        // and the TrueBeat calculation fluctuates between two numbers.
-                        // TODO: send email to ExtractAlpha about this
-                        if (_duplicateFQ1DataTickers.Add(ticker))
+                        if (!char.IsNumber(line.FirstOrDefault()))
                         {
-                            Log.Error($"ExtractAlphaTrueBeatsConverter.ParseTrueBeats(): Duplicate data encountered in FQ1 dataset for ticker: {ticker} - skipping");
+                            // Skips the CSV header line and empty lines
+                            continue;
                         }
 
-                        continue;
-                    }
-                    
-                    var processingData = symbolFiscalPeriods
-                        .FirstOrDefault(x =>
-                            x.EarningsMetric == earningsMetric && 
+                        var csv = line.Split(',');
+
+                        var ticker = csv[_tickerIndex];
+                        if (!trueBeats.TryGetValue(ticker, out var symbolTrueBeats))
+                        {
+                            // Not all tickers appear in the fiscal periods dataset, so we'll need to initialize
+                            // a new list for these tickers that won't have fiscal year information.
+                            symbolTrueBeats = new List<ExtractAlphaTrueBeat>();
+                            trueBeats[ticker] = symbolTrueBeats;
+                        }
+
+                        var (fiscalYear, fiscalQuarter) = ParseFiscalPeriod(csv[_fiscalPeriodIndex]);
+                        if (!allQuarters && symbolTrueBeats.Any(x =>
+                            x.EarningsMetric == earningsMetric &&
                             x.FiscalPeriod.FiscalYear == fiscalYear &&
-                            x.FiscalPeriod.FiscalQuarter == fiscalQuarter);
-                    
-                    var insertProcessingData = processingData == null;
-
-                    var analystCount = allQuarters
-                        ? Parse.Int(csv[_analystCountIndex])
-                        : (int?) null;
-                    
-                    var trueBeat = Parse.Decimal(csv[_trueBeatIndex], NumberStyles.Any);
-                    var expertBeat = !allQuarters
-                        ? Parse.Decimal(csv[_expertBeatIndex], NumberStyles.Any)
-                        : (decimal?) null;
-
-                    var trendBeat = !allQuarters
-                        ? Parse.Decimal(csv[_trendBeatIndex], NumberStyles.Any)
-                        : (decimal?) null;
-
-                    var managementBeat = !allQuarters
-                        ? Parse.Decimal(csv[_managementBeatIndex], NumberStyles.Any)
-                        : (decimal?) null;
-
-                    processingData ??= new ExtractAlphaProcessingData
-                    {
-                        EarningsMetric = earningsMetric,
-                        FiscalPeriod = new ExtractAlphaFiscalPeriod
+                            x.FiscalPeriod.FiscalQuarter == fiscalQuarter &&
+                            x.ExpertBeat != null &&
+                            x.TrendBeat != null &&
+                            x.ManagementBeat != null))
                         {
-                            FiscalYear = fiscalYear,
-                            FiscalQuarter = fiscalQuarter
+                            // We've encountered a duplicate Symbol while processing the FQ1 TrueBeats dataset, and
+                            // the first piece of data has already been included.
+                            // Majority of the duplicated symbols in the raw data will have duplicate data
+                            // that equals another line in the same file. However, sometimes this isn't true
+                            // and the TrueBeat calculation fluctuates between two numbers.
+                            if (_duplicateFQ1DataTickers.Add(ticker))
+                            {
+                                Log.Error($"ExtractAlphaTrueBeatsConverter.ParseTrueBeats(): Duplicate data encountered in FQ1 dataset for ticker: {ticker} - skipping");
+                            }
+
+                            continue;
                         }
-                    };
 
-                    processingData.Data ??= new ExtractAlphaTrueBeat
-                    {
-                        EarningsMetric = earningsMetric,
-                        FiscalPeriod = processingData.FiscalPeriod,
-                        TrueBeat = trueBeat,
-                        Time = _processingDate
-                    };
-                    
-                    processingData.Data.AnalystCount = analystCount ?? processingData.Data.AnalystCount;
-                    processingData.Data.ExpertBeat ??= expertBeat;
-                    processingData.Data.TrendBeat ??= trendBeat;
-                    processingData.Data.ManagementBeat ??= managementBeat;
+                        var processingData = symbolTrueBeats
+                            .FirstOrDefault(x =>
+                                x.EarningsMetric == earningsMetric &&
+                                x.FiscalPeriod.FiscalYear == fiscalYear &&
+                                x.FiscalPeriod.FiscalQuarter == fiscalQuarter);
 
-                    if (insertProcessingData)
-                    {
-                        symbolFiscalPeriods.Add(processingData);
+                        // If we didn't find a match, this is the first time that we've encountered
+                        // data for the ticker with a fiscal year/quarter we haven't seen before.
+                        var insertProcessingData = processingData == null;
+
+                        var analystCount = allQuarters
+                            ? Parse.Int(csv[_analystCountIndex])
+                            : (int?) null;
+
+                        // TrueBeat will always be present and not null in both "FQ1" and "All" datasets.
+                        var trueBeat = Parse.Decimal(csv[_trueBeatIndex], NumberStyles.Any);
+                        var expertBeat = !allQuarters
+                            ? Parse.Decimal(csv[_expertBeatIndex], NumberStyles.Any)
+                            : (decimal?) null;
+
+                        var trendBeat = !allQuarters
+                            ? Parse.Decimal(csv[_trendBeatIndex], NumberStyles.Any)
+                            : (decimal?) null;
+
+                        var managementBeat = !allQuarters
+                            ? Parse.Decimal(csv[_managementBeatIndex], NumberStyles.Any)
+                            : (decimal?) null;
+
+                        // Only initializes the `processingData` variable if it's currently null.
+                        processingData ??= new ExtractAlphaTrueBeat
+                        {
+                            EarningsMetric = earningsMetric,
+                            FiscalPeriod = new ExtractAlphaFiscalPeriod
+                            {
+                                FiscalYear = fiscalYear,
+                                FiscalQuarter = fiscalQuarter
+                            },
+                            Time = _processingDate
+                        };
+
+                        processingData.AnalystEstimatesCount = analystCount ?? processingData.AnalystEstimatesCount;
+                        processingData.TrueBeat = trueBeat;
+                        processingData.ExpertBeat ??= expertBeat;
+                        processingData.TrendBeat ??= trendBeat;
+                        processingData.ManagementBeat ??= managementBeat;
+
+                        if (expertBeat != null && trendBeat != null && managementBeat != null)
+                        {
+                            // If we're processing a duplicate, then we should calculate the TrueBeat
+                            // value ourselves, in case the data is ordered differently between the
+                            // FQ1 and All raw data. TrueBeat is the sum of the ExpertBeat, TrendBeat, and ManagementBeat
+                            processingData.TrueBeat = expertBeat.Value + trendBeat.Value + managementBeat.Value;
+                        }
+
+                        if (insertProcessingData)
+                        {
+                            // It's the first time we've seen data for this fiscal year/quarter, so
+                            // let's include it so that it can be written to disk later.
+                            symbolTrueBeats.Add(processingData);
+                        }
                     }
                 }
-            }
+            } while (allQuarters);
         }
 
-        protected Dictionary<string, List<ExtractAlphaProcessingData>> ParseFiscalPeriods()
+        /// <summary>
+        /// Parses the Fiscal Periods dataset to get more information about the
+        /// fiscal year and quarter for all stocks.
+        /// </summary>
+        /// <returns>
+        /// Dictionary keyed by ticker that can or will contain data that is written to disk.
+        /// </returns>
+        protected Dictionary<string, List<ExtractAlphaTrueBeat>> ParseFiscalPeriods()
         {
-            var fiscalPeriods = new Dictionary<string, List<ExtractAlphaProcessingData>>();
+            var trueBeats = new Dictionary<string, List<ExtractAlphaTrueBeat>>();
             
             foreach (var line in GetFiscalPeriodRawLines())
             {
@@ -208,17 +231,17 @@ namespace QuantConnect.DataProcessing
                     ? ExtractAlphaTrueBeatEarningsMetric.EPS
                     : ExtractAlphaTrueBeatEarningsMetric.Revenue;
                 
-                var (fiscalYear, fiscalQuarter) = ExtractAlphaProcessingData.ParseFiscalPeriod(csv[6]);
+                var (fiscalYear, fiscalQuarter) = ParseFiscalPeriod(csv[6]);
 
                 var fiscalPeriodEnd = Parse.DateTimeExact(csv[7], "yyyy-MM-dd", DateTimeStyles.None);
                 var expectedReportDate = Parse.DateTimeExact(csv[8], "yyyy-MM-dd", DateTimeStyles.None);
 
-                if (!fiscalPeriods.TryGetValue(ticker, out var symbolFiscalPeriods))
+                if (!trueBeats.TryGetValue(ticker, out var symbolTrueBeats))
                 {
-                    symbolFiscalPeriods = new List<ExtractAlphaProcessingData>();
-                    fiscalPeriods[ticker] = symbolFiscalPeriods;
+                    symbolTrueBeats = new List<ExtractAlphaTrueBeat>();
+                    trueBeats[ticker] = symbolTrueBeats;
                 }
-                else if (symbolFiscalPeriods.Any(x =>
+                else if (symbolTrueBeats.Any(x =>
                     x.EarningsMetric == earningsMetric &&
                     x.FiscalPeriod.FiscalYear == fiscalYear &&
                     x.FiscalPeriod.FiscalQuarter == fiscalQuarter &&
@@ -238,7 +261,7 @@ namespace QuantConnect.DataProcessing
                     continue;
                 }
                 
-                symbolFiscalPeriods.Add(new ExtractAlphaProcessingData
+                symbolTrueBeats.Add(new ExtractAlphaTrueBeat
                 {
                     EarningsMetric = earningsMetric,
                     FiscalPeriod = new ExtractAlphaFiscalPeriod 
@@ -247,20 +270,24 @@ namespace QuantConnect.DataProcessing
                         FiscalQuarter = fiscalQuarter,
                         End = fiscalPeriodEnd,
                         ExpectedReportDate = expectedReportDate
-                    }
+                    },
+                    Time = _processingDate
                 });
             }
 
-            return fiscalPeriods;
+            return trueBeats;
         }
 
-        private void WriteToFile(Dictionary<string, List<ExtractAlphaProcessingData>> processingData)
+        /// <summary>
+        /// Writes processed data to disk, merging any existing data with the newly processed data.
+        /// </summary>
+        /// <param name="processingData">The data to write to disk</param>
+        private void WriteToFile(Dictionary<string, List<ExtractAlphaTrueBeat>> processingData)
         {
             foreach (var kvp in processingData)
             {
                 var ticker = kvp.Key;
                 var trueBeatData = kvp.Value
-                    .Select(x => x.Data)
                     .OrderBy(x => x.FiscalPeriod.FiscalYear)
                     .ThenBy(x => x.FiscalPeriod.FiscalQuarter ?? 0)
                     .ThenBy(x => x.EarningsMetric);
@@ -286,14 +313,14 @@ namespace QuantConnect.DataProcessing
                 }
 
                 var outputDataLines = outputData
-                    .Select(ExtractAlphaProcessingData.ToCsv)
+                    .Select(ToCsv)
                     .ToList();
                    
                 var existingDataLinesSet = outputDataLines.ToHashSet();
 
                 foreach (var trueBeat in trueBeatData)
                 {
-                    var csvLine = ExtractAlphaProcessingData.ToCsv(trueBeat);
+                    var csvLine = ToCsv(trueBeat);
                     if (existingDataLinesSet.Add(csvLine))
                     {
                         outputDataLines.Add(csvLine);
@@ -316,6 +343,11 @@ namespace QuantConnect.DataProcessing
             }
         }
 
+        /// <summary>
+        /// Gets the Fiscal Period dataset's contents
+        /// </summary>
+        /// <returns>Array of all lines inside the dataset</returns>
+        /// <remarks>Made virtual and protected for inserting test cases in unit tests</remarks>
         protected virtual string[] GetFiscalPeriodRawLines()
         {
             return File.ReadAllLines(
@@ -324,6 +356,13 @@ namespace QuantConnect.DataProcessing
                     $"Fiscal_Periods_EPSSales_US_{_processingDate:yyyyMMdd}.csv"));
         }
 
+        /// <summary>
+        /// Gets the TrueBeat dataset's contents
+        /// </summary>
+        /// <param name="earningsMetric">The earning metric to load data for</param>
+        /// <param name="allQuarters">If true, load data for the "All" dataset</param>
+        /// <returns>Array of all lines inside the dataset</returns>
+        /// <remarks>Made virtual and protected for inserting test cases in unit tests</remarks>
         protected virtual string[] GetTrueBeatsRawLines(
             ExtractAlphaTrueBeatEarningsMetric earningsMetric,
             bool allQuarters)
@@ -335,40 +374,47 @@ namespace QuantConnect.DataProcessing
             return File.ReadAllLines($"ExtractAlpha_{(allQuarters ? "All" : "FQ1")}_TrueBeats_{earningsMetricValue}_US_{_processingDate:yyyyMMdd}.csv");
         }
 
-        public class ExtractAlphaProcessingData
+        /// <summary>
+        /// Parses the fiscal period as it appears in the raw data
+        /// </summary>
+        /// <param name="fiscalPeriodEntry">Fiscal period data (e.g. "2021 Q3")</param>
+        /// <returns>Tuple of (Fiscal Year, Fiscal Quarter (nullable))</returns>
+        protected static Tuple<int, int?> ParseFiscalPeriod(string fiscalPeriodEntry)
         {
-            public ExtractAlphaTrueBeatEarningsMetric EarningsMetric { get; set; }
+            // Separate the fiscal year and the quarter from each other
+            var fiscalPeriodSplit = fiscalPeriodEntry.Split(' ');
             
-            public ExtractAlphaFiscalPeriod FiscalPeriod { get; set; }
+            // Fiscal year will always be there, no need for a null check
+            var fiscalYear = Parse.Int(fiscalPeriodSplit[0]);
             
-            public ExtractAlphaTrueBeat Data { get; set; }
+            // But fiscal quarter can be null, so check to see it exists, and if so,
+            // parse the number next to the `Q` to get the fiscal quarter number.
+            var fiscalQuarter = fiscalPeriodSplit.Length > 1
+                ? Parse.Int(fiscalPeriodSplit[1].Replace("Q", ""))
+                : (int?)null;
 
-            public static Tuple<int, int?> ParseFiscalPeriod(string fiscalPeriodEntry)
-            {
-                var fiscalPeriodSplit = fiscalPeriodEntry.Split(' ');
-                var fiscalYear = Parse.Int(fiscalPeriodSplit[0]);
-                var fiscalQuarter = fiscalPeriodSplit.Length > 1
-                    ? Parse.Int(fiscalPeriodSplit[1].Replace("Q", ""))
-                    : (int?)null;
+            return new Tuple<int, int?>(fiscalYear, fiscalQuarter);
+        }
 
-                return new Tuple<int, int?>(fiscalYear, fiscalQuarter);
-            }
-
-            public static string ToCsv(ExtractAlphaTrueBeat trueBeat)
-            {
-                return string.Join(",",
-                    trueBeat.Time.ToStringInvariant("yyyyMMdd"),
-                    trueBeat.EarningsMetric.ToString().ToLowerInvariant(),
-                    $"{trueBeat.AnalystCount}",
-                    $"{trueBeat.TrueBeat.NormalizeToStr()}",
-                    $"{trueBeat.ExpertBeat?.NormalizeToStr()}",
-                    $"{trueBeat.TrendBeat?.NormalizeToStr()}",
-                    $"{trueBeat.ManagementBeat?.NormalizeToStr()}",
-                    $"{trueBeat.FiscalPeriod.FiscalYear}",
-                    $"{trueBeat.FiscalPeriod.FiscalQuarter}",
-                    trueBeat.FiscalPeriod.End?.ToStringInvariant("yyyyMMdd"),
-                    trueBeat.FiscalPeriod.ExpectedReportDate?.ToStringInvariant("yyyyMMdd"));
-            }
+        /// <summary>
+        /// Converts a <see cref="ExtractAlphaTrueBeat"/> to CSV, readable by the Reader(...) method of the TrueBeat class.
+        /// </summary>
+        /// <param name="trueBeat">TrueBeat data</param>
+        /// <returns>Line of CSV for the TrueBeat data</returns>
+        protected static string ToCsv(ExtractAlphaTrueBeat trueBeat)
+        {
+            return string.Join(",",
+                trueBeat.Time.ToStringInvariant("yyyyMMdd"),
+                trueBeat.EarningsMetric.ToString().ToLowerInvariant(),
+                $"{trueBeat.AnalystEstimatesCount}",
+                $"{trueBeat.TrueBeat.NormalizeToStr()}",
+                $"{trueBeat.ExpertBeat?.NormalizeToStr()}",
+                $"{trueBeat.TrendBeat?.NormalizeToStr()}",
+                $"{trueBeat.ManagementBeat?.NormalizeToStr()}",
+                $"{trueBeat.FiscalPeriod.FiscalYear}",
+                $"{trueBeat.FiscalPeriod.FiscalQuarter}",
+                trueBeat.FiscalPeriod.End?.ToStringInvariant("yyyyMMdd"),
+                trueBeat.FiscalPeriod.ExpectedReportDate?.ToStringInvariant("yyyyMMdd"));
         }
     }
 }
