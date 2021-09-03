@@ -155,10 +155,10 @@ namespace QuantConnect.DataSource
                 TrendBeat = trendBeat,
                 ManagementBeat = managementBeat,
                 
-                Time = date,
+                Time = time,
                 // Data will be made available to trade with before 12:30:00 Eastern Time on days
                 // that there is data. This is the upper bound on the delivery of the data in realtime.
-                EndTime = date.Date.AddHours(12).AddMinutes(30),
+                EndTime = time.Date.AddHours(12).AddMinutes(30),
                 Symbol = config.Symbol
             };
         }

@@ -430,7 +430,8 @@ namespace QuantConnect.DataLibrary.Tests
         [TestCase("FB", 1, "20210501,eps,90,0.9999,,,,2021,3,,")]
         [TestCase("FB", 2, "20210501,revenue,50,0.8888,0.2222,0.2222,0.4444,2021,2,20210630,20210815")]
         [TestCase("FB", 3, "20210501,revenue,90,0.9999,,,,2021,3,,")]
-        public void ReaderFromCsvTests(string ticker, int index, string line)
+        [TestCase("AAPL", 0, "20210531,eps,10,0.54321,,,,2021,,20211231,20220131", false)]
+        public void ReaderFromCsvTests(string ticker, int index, string line, bool datesEqual = true)
         {
             var symbol = Symbol.Create(ticker, SecurityType.Equity, Market.USA);
             var config = new SubscriptionDataConfig(
@@ -449,10 +450,19 @@ namespace QuantConnect.DataLibrary.Tests
             var actual = (ExtractAlphaTrueBeat)factory.Reader(config, line, _date, false);
             
             AssertTrueBeat(expected, actual);
+            Assert.AreEqual(expected.Symbol, actual.Symbol);
+
+            if (!datesEqual)
+            {
+                // Checks if we're reading the date from the data
+                // and not using the date passed in to the function.
+                Assert.AreNotEqual(expected.Time, actual.Time);
+                Assert.AreNotEqual(expected.EndTime, actual.EndTime);
+                return;
+            }
             
             Assert.AreEqual(expected.Time, actual.Time);
             Assert.AreEqual(expected.EndTime, actual.EndTime);
-            Assert.AreEqual(expected.Symbol, actual.Symbol);
         }
 
         private void AssertTrueBeat(ExtractAlphaTrueBeat expected, ExtractAlphaTrueBeat actual)
