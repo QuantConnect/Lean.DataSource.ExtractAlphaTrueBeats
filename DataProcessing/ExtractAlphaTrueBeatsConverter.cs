@@ -23,9 +23,6 @@ namespace QuantConnect.DataProcessing
         private const int _managementBeatIndex = 9; 
         
         private readonly DateTime _processingDate;
-        private readonly DirectoryInfo _rawDataDirectory;
-        private readonly DirectoryInfo _existingDataDirectory;
-        private readonly DirectoryInfo _outputDataDirectory;
         private readonly HashSet<string> _duplicateFiscalDataTickers = new HashSet<string>();
         private readonly HashSet<string> _duplicateFQ1DataTickers = new HashSet<string>();
         
@@ -44,6 +41,10 @@ namespace QuantConnect.DataProcessing
             false,
             false,
             false);
+        
+        protected readonly DirectoryInfo RawDataDirectory;
+        protected readonly DirectoryInfo ExistingDataDirectory;
+        protected readonly DirectoryInfo OutputDataDirectory;
 
         /// <summary>
         /// Creates an instance of the converter for the provided processing date
@@ -59,30 +60,34 @@ namespace QuantConnect.DataProcessing
             DirectoryInfo outputDataDataDirectory)
         {
             _processingDate = processingDate;
-            _rawDataDirectory = rawDataDirectory;
-            _existingDataDirectory = existingDataDirectory;
-            _outputDataDirectory = outputDataDataDirectory;
+            RawDataDirectory = rawDataDirectory;
+            ExistingDataDirectory = existingDataDirectory;
+            OutputDataDirectory = outputDataDataDirectory;
         }
         
         /// <summary>
         /// Converts the raw data into CSV
         /// </summary>
-        public void Convert()
+        public virtual void Convert()
         {
-            var processingData = ParseFiscalPeriods();
+            var processingData = ParseFiscalPeriods(_processingDate);
 
-            ParseTrueBeats(processingData);
-            WriteToFile(processingData);
+            ParseTrueBeats(processingData, _processingDate);
+            WriteToFile(processingData, _processingDate);
         }
-        
+
         /// <summary>
         /// Parses raw TrueBeats data for EPS/Revenue
         /// </summary>
         /// <param name="trueBeats">The TrueBeats data parsed so far containing the fiscal periods of the data</param>
-        protected void ParseTrueBeats(Dictionary<string, List<ExtractAlphaTrueBeat>> trueBeats)
+        /// <param name="processingDate">Processing date</param>
+        protected Dictionary<string, List<ExtractAlphaTrueBeat>> ParseTrueBeats(
+            Dictionary<string, List<ExtractAlphaTrueBeat>> trueBeats,
+            DateTime processingDate)
         {
             // Process the TrueBeats "All" dataset and then joins it with the "FQ1" dataset.
             var allQuarters = false;
+            var outputData = new Dictionary<string, List<ExtractAlphaTrueBeat>>();
 
             do
             {
@@ -92,7 +97,7 @@ namespace QuantConnect.DataProcessing
 
                 foreach (var earningsMetric in _earningsMetrics)
                 {
-                    foreach (var line in GetTrueBeatsRawLines(earningsMetric, allQuarters))
+                    foreach (var line in GetTrueBeatsRawLines(earningsMetric, processingDate, allQuarters))
                     {
                         if (!char.IsNumber(line.FirstOrDefault()))
                         {
@@ -110,9 +115,15 @@ namespace QuantConnect.DataProcessing
                             symbolTrueBeats = new List<ExtractAlphaTrueBeat>();
                             trueBeats[ticker] = symbolTrueBeats;
                         }
+                        if (!outputData.TryGetValue(ticker, out var outputTrueBeats))
+                        {
+                            outputTrueBeats = new List<ExtractAlphaTrueBeat>();
+                            outputData[ticker] = outputTrueBeats;
+                        }
 
                         var (fiscalYear, fiscalQuarter) = ParseFiscalPeriod(csv[_fiscalPeriodIndex]);
                         if (!allQuarters && symbolTrueBeats.Any(x =>
+                            x.Time == processingDate &&
                             x.EarningsMetric == earningsMetric &&
                             x.FiscalPeriod.FiscalYear == fiscalYear &&
                             x.FiscalPeriod.FiscalQuarter == fiscalQuarter &&
@@ -133,12 +144,24 @@ namespace QuantConnect.DataProcessing
                             continue;
                         }
 
-                        var processingData = symbolTrueBeats
+                        var processingData = outputTrueBeats
                             .FirstOrDefault(x =>
                                 x.EarningsMetric == earningsMetric &&
                                 x.FiscalPeriod.FiscalYear == fiscalYear &&
                                 x.FiscalPeriod.FiscalQuarter == fiscalQuarter);
-
+                        
+                        // See if we've already added the data. If not, then let's
+                        // mark it for addition.
+                        var insertOutputData = processingData == null;
+                        
+                        // Try again, but this time looking through data that might've been
+                        // previously parsed.
+                        processingData ??= symbolTrueBeats
+                            .FirstOrDefault(x =>
+                                x.EarningsMetric == earningsMetric &&
+                                x.FiscalPeriod.FiscalYear == fiscalYear &&
+                                x.FiscalPeriod.FiscalQuarter == fiscalQuarter);
+                        
                         // If we didn't find a match, this is the first time that we've encountered
                         // data for the ticker with a fiscal year/quarter we haven't seen before.
                         var insertProcessingData = processingData == null;
@@ -169,17 +192,20 @@ namespace QuantConnect.DataProcessing
                             {
                                 FiscalYear = fiscalYear,
                                 FiscalQuarter = fiscalQuarter
-                            },
-                            Time = _processingDate
+                            }
                         };
 
+                        // Always sets the time because this might be a recycled data point
+                        // if we're processing historical data.
+                        processingData.Time = processingDate;
+                        
                         processingData.AnalystEstimatesCount = analystCount ?? processingData.AnalystEstimatesCount;
                         processingData.TrueBeat = trueBeat;
                         processingData.ExpertBeat ??= expertBeat;
                         processingData.TrendBeat ??= trendBeat;
                         processingData.ManagementBeat ??= managementBeat;
 
-                        if (expertBeat != null && trendBeat != null && managementBeat != null)
+                        if (expertBeat != null)
                         {
                             // If we're processing a duplicate, then we should calculate the TrueBeat
                             // value ourselves, in case the data is ordered differently between the
@@ -187,6 +213,12 @@ namespace QuantConnect.DataProcessing
                             processingData.TrueBeat = expertBeat.Value + trendBeat.Value + managementBeat.Value;
                         }
 
+                        if (insertOutputData)
+                        {
+                            // Any data that goes through here will be returned from the method
+                            outputTrueBeats.Add(processingData);
+                        }
+                        
                         if (insertProcessingData)
                         {
                             // It's the first time we've seen data for this fiscal year/quarter, so
@@ -196,20 +228,23 @@ namespace QuantConnect.DataProcessing
                     }
                 }
             } while (allQuarters);
+
+            return outputData;
         }
 
         /// <summary>
         /// Parses the Fiscal Periods dataset to get more information about the
         /// fiscal year and quarter for all stocks.
         /// </summary>
+        /// <param name="processingDate">Processing date</param>
         /// <returns>
         /// Dictionary keyed by ticker that can or will contain data that is written to disk.
         /// </returns>
-        protected Dictionary<string, List<ExtractAlphaTrueBeat>> ParseFiscalPeriods()
+        protected Dictionary<string, List<ExtractAlphaTrueBeat>> ParseFiscalPeriods(DateTime processingDate)
         {
             var trueBeats = new Dictionary<string, List<ExtractAlphaTrueBeat>>();
             
-            foreach (var line in GetFiscalPeriodRawLines())
+            foreach (var line in GetFiscalPeriodRawLines(processingDate))
             {
                 if (!char.IsNumber(line.FirstOrDefault()))
                 {
@@ -271,7 +306,7 @@ namespace QuantConnect.DataProcessing
                         End = fiscalPeriodEnd,
                         ExpectedReportDate = expectedReportDate
                     },
-                    Time = _processingDate
+                    Time = processingDate
                 });
             }
 
@@ -282,12 +317,14 @@ namespace QuantConnect.DataProcessing
         /// Writes processed data to disk, merging any existing data with the newly processed data.
         /// </summary>
         /// <param name="processingData">The data to write to disk</param>
-        private void WriteToFile(Dictionary<string, List<ExtractAlphaTrueBeat>> processingData)
+        /// <param name="processingDate">Processing date</param>
+        protected void WriteToFile(Dictionary<string, List<ExtractAlphaTrueBeat>> processingData, DateTime processingDate)
         {
             foreach (var kvp in processingData)
             {
                 var ticker = kvp.Key;
                 var trueBeatData = kvp.Value
+                    .Where(x => x.Time.Date == processingDate)
                     .OrderBy(x => x.FiscalPeriod.FiscalYear)
                     .ThenBy(x => x.FiscalPeriod.FiscalQuarter ?? 0)
                     .ThenBy(x => x.EarningsMetric);
@@ -295,7 +332,7 @@ namespace QuantConnect.DataProcessing
                 var outputData = new List<ExtractAlphaTrueBeat>();
                 var processedData = new FileInfo(
                     Path.Combine(
-                        _existingDataDirectory.FullName,
+                        ExistingDataDirectory.FullName,
                         "alternative",
                         "extractalpha",
                         "truebeats",
@@ -304,7 +341,7 @@ namespace QuantConnect.DataProcessing
                 if (processedData.Exists)
                 {
                     outputData = File.ReadAllLines(processedData.FullName)
-                        .Select(x => (ExtractAlphaTrueBeat) _factory.Reader(_config, x, _processingDate, false))
+                        .Select(x => (ExtractAlphaTrueBeat) _factory.Reader(_config, x, processingDate, false))
                         .OrderBy(x => x.Time)
                         .ThenBy(x => x.FiscalPeriod.FiscalYear)
                         .ThenBy(x => x.FiscalPeriod.FiscalQuarter ?? 0)
@@ -329,7 +366,7 @@ namespace QuantConnect.DataProcessing
 
                 var outputFileDirectory = Directory.CreateDirectory(
                     Path.Combine(
-                        _outputDataDirectory.FullName,
+                        OutputDataDirectory.FullName,
                         "alternative",
                         "extractalpha",
                         "truebeats"));
@@ -346,32 +383,35 @@ namespace QuantConnect.DataProcessing
         /// <summary>
         /// Gets the Fiscal Period dataset's contents
         /// </summary>
+        /// <param name="processingDate">Processing date</param>
         /// <returns>Array of all lines inside the dataset</returns>
         /// <remarks>Made virtual and protected for inserting test cases in unit tests</remarks>
-        protected virtual string[] GetFiscalPeriodRawLines()
+        protected virtual string[] GetFiscalPeriodRawLines(DateTime processingDate)
         {
             return File.ReadAllLines(
                 Path.Combine(
-                    _rawDataDirectory.FullName, 
-                    $"Fiscal_Periods_EPSSales_US_{_processingDate:yyyyMMdd}.csv"));
+                    RawDataDirectory.FullName, 
+                    $"Fiscal_Periods_EPSSales_US_{processingDate:yyyyMMdd}.csv"));
         }
 
         /// <summary>
         /// Gets the TrueBeat dataset's contents
         /// </summary>
         /// <param name="earningsMetric">The earning metric to load data for</param>
+        /// <param name="processingDate">The date to load data for</param>
         /// <param name="allQuarters">If true, load data for the "All" dataset</param>
         /// <returns>Array of all lines inside the dataset</returns>
         /// <remarks>Made virtual and protected for inserting test cases in unit tests</remarks>
         protected virtual string[] GetTrueBeatsRawLines(
             ExtractAlphaTrueBeatEarningsMetric earningsMetric,
+            DateTime processingDate,
             bool allQuarters)
         {
             var earningsMetricValue = earningsMetric == ExtractAlphaTrueBeatEarningsMetric.EPS
                 ? "EPS"
                 : "SALES";
 
-            return File.ReadAllLines($"ExtractAlpha_{(allQuarters ? "All" : "FQ1")}_TrueBeats_{earningsMetricValue}_US_{_processingDate:yyyyMMdd}.csv");
+            return File.ReadAllLines($"ExtractAlpha_{(allQuarters ? "All" : "FQ1")}_TrueBeats_{earningsMetricValue}_US_{processingDate:yyyyMMdd}.csv");
         }
 
         /// <summary>

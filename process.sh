@@ -10,7 +10,8 @@
 
 # Optional environment variables:
 # 
-# S3_OPTIONS
+# S3_OPTIONS (CLI arguments to AWS CLI)
+# PROCESS_HISTORICAL_DATA (if equal to "true", then historical data will be downloaded and processed)
 
 S3_OPTIONS="${S3_OPTIONS:-}"
 TRUEBEATS_FILE_PREFIXES=( "ExtractAlpha_All_TrueBeats_EPS_US" "ExtractAlpha_All_TrueBeats_SALES_US" "ExtractAlpha_FQ1_TrueBeats_EPS_US" "ExtractAlpha_FQ1_TrueBeats_SALES_US" "Fiscal_Periods_EPSSales_US" )
@@ -36,6 +37,28 @@ function sync_to_s3 {
     echo "Successfully completed S3 sync for date: ${QC_DATAFLEET_DEPLOYMENT_DATE}"
 }
 
+function get_historical_raw_from_s3 {
+    echo "Begin downloading historical raw data from archive S3 bucket"
+    aws s3 cp ${S3_OPTIONS} s3://${S3_BUCKET_NAME}/alternative/extractalpha/truebeats/ExtractAlpha_TrueBeats_EPSSALES_History_US.zip ./
+    exit_code=$?
+    
+    if [ "${exit_code}" -ne 0 ]; then
+        echo "Historical raw data download from S3 bucket ${S3_BUCKET_NAME} failed. Exiting with code ${exit_code}"
+        exit ${exit_code}
+    fi;
+    
+    echo "Unzipping historical raw data..."
+    unzip ExtractAlpha_TrueBeats_EPSSALES_History_US.zip
+    
+    exit_code=$?
+    if [ "${exit_code}" -ne 0 ]; then
+        echo "Failed to unzip historical raw data. Exiting with code ${exit_code}"
+        exit ${exit_code}
+    fi;
+    
+    echo "Successfully retrieved historical raw data"
+}
+
 function ftp_download_truebeats {
     for file_prefix in ${TRUEBEATS_FILE_PREFIXES[@]}; do
         new_command="get ${file_prefix}_${QC_DATAFLEET_DEPLOYMENT_DATE}.csv"
@@ -57,5 +80,10 @@ function ftp_download_truebeats {
     echo "Successfully finished downloading data from the FTP for date: ${QC_DATAFLEET_DEPLOYMENT_DATE}"
     sync_to_s3
 }
+
+if [[ "${PROCESS_HISTORICAL_DATA}" == "true" ]]; then
+    get_historical_raw_from_s3
+    exit $?
+fi;
 
 ftp_download_truebeats
