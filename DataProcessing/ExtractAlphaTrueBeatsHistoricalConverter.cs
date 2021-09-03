@@ -32,10 +32,10 @@ namespace QuantConnect.DataProcessing
         /// <exception cref="Exception">Historical data for fiscal periods was not found.</exception>
         public override void Convert()
         {
-            ConvertHistoricalData();
-            
             var startDate = new DateTime(2002, 1, 1);
             var endDate = new DateTime(2021, 1, 31);
+            
+            ConvertHistoricalData(startDate);
             
             var currentProcessingDate = startDate;
             var processingData = ParseFiscalPeriods(currentProcessingDate);
@@ -79,7 +79,7 @@ namespace QuantConnect.DataProcessing
         /// Data is outputted to the raw data directory, and is then parsed day by day.
         /// We split the data by date to avoid running out of memory, since some of these files are >10GB in size.
         /// </summary>
-        private void ConvertHistoricalData()
+        private void ConvertHistoricalData(DateTime startDate)
         {
             Log.Trace($"ExtractAlphaTrueBeatsHistoricalConverter.ConvertHistoricalData(): Begin transforming raw historical data to format expected by parser");
             var earningsMetrics = new[]
@@ -97,10 +97,8 @@ namespace QuantConnect.DataProcessing
                 rawFQ1
             };
 
-            // 2002-01-03 is the starting date of the data. Keep as string
-            // to save ourselves time instead of parsing each date that comes
-            // from the CSV into a DateTime.
-            var previousDate = "2002-01-03";
+            var previousDate = startDate;
+            var datesSkipped = new HashSet<string>();
 
             foreach (var rawDataType in rawDataTypes)
             {
@@ -132,11 +130,23 @@ namespace QuantConnect.DataProcessing
                         }
 
                         var csv = line.Split(',');
-                        var date = csv[0];
-                        if (date != previousDate)
+                        
+                        var dateValue = csv[0];
+                        var date = Parse.DateTimeExact(dateValue, "yyyy-MM-dd", DateTimeStyles.None);
+                        if (date < startDate) 
                         {
-                            var parsedDate = Parse.DateTimeExact(previousDate, "yyyy-MM-dd", DateTimeStyles.None);
-                            WriteHistoricalDataToFile(parsedDate, outputLines, metricName, rawDataType);
+                            if (datesSkipped.Add(dateValue))
+                            {
+                                Log.Trace($"ExtractAlphaTrueBeatsHistoricalConverter.ConvertHistoricalData(): Skipping processing for date: {dateValue}");
+                            }
+
+                            continue;
+                        }
+                        
+                        if (date != previousDate && outputLines.Count != 0)
+                        {
+                            Log.Trace($"ExtractAlphaTrueBeatsHistoricalConverter.ConvertHistoricalData(): Finished processing \"{rawDataType}\" {metricName} data for date: {previousDate:yyyy-MM-dd}");
+                            WriteHistoricalDataToFile(previousDate, outputLines, metricName, rawDataType);
                             outputLines.Clear();
                         }
 
@@ -147,7 +157,7 @@ namespace QuantConnect.DataProcessing
                         // we're handling.
                         var lineData = new List<string>
                         {
-                            date,
+                            dateValue,
                             csv[2],
                             csv[4],
                             csv[6],
@@ -172,8 +182,8 @@ namespace QuantConnect.DataProcessing
                     if (outputLines.Count != 0)
                     {
                         // Final write, there might still be data we haven't written after the file finishes reading
-                        var parsedDate = Parse.DateTimeExact(previousDate, "yyyy-MM-dd", DateTimeStyles.None);
-                        WriteHistoricalDataToFile(parsedDate, outputLines, metricName, rawDataType);
+                        Log.Trace($"ExtractAlphaTrueBeatsHistoricalConverter.ConvertHistoricalData(): Completed processing \"{rawDataType}\" {metricName} data");
+                        WriteHistoricalDataToFile(previousDate, outputLines, metricName, rawDataType);
                     }
                 }
             }
@@ -193,7 +203,8 @@ namespace QuantConnect.DataProcessing
 
             // Skip blank/header lines and reformat the data
             return rawLines
-                .Where(x => char.IsNumber(x.FirstOrDefault()))
+                .Skip(1)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
                 .Select(line =>
                 {
                     var csv = line.Split(',');
