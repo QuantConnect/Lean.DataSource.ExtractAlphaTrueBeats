@@ -346,9 +346,7 @@ namespace QuantConnect.DataProcessing
                 var ticker = kvp.Key;
                 var trueBeatData = kvp.Value
                     .Where(x => x.Time.Date == processingDate)
-                    .OrderBy(x => x.FiscalPeriod.FiscalYear)
-                    .ThenBy(x => x.FiscalPeriod.FiscalQuarter ?? 0)
-                    .ThenBy(x => x.EarningsMetric);
+                    .ToList();
 
                 var outputData = new List<ExtractAlphaTrueBeat>();
                 var processedData = new FileInfo(
@@ -363,18 +361,18 @@ namespace QuantConnect.DataProcessing
                 {
                     outputData = File.ReadAllLines(processedData.FullName)
                         .Select(x => (ExtractAlphaTrueBeat) _factory.Reader(_config, x, processingDate, false))
-                        .OrderBy(x => x.Time)
-                        .ThenBy(x => x.FiscalPeriod.FiscalYear)
-                        .ThenBy(x => x.FiscalPeriod.FiscalQuarter ?? 0)
-                        .ThenBy(x => x.EarningsMetric)
                         .ToList();
                 }
 
                 outputData.AddRange(trueBeatData);
                 var outputDataLines = outputData
                     .OrderBy(x => x.Time)
+                    .ThenBy(x => x.FiscalPeriod.FiscalYear)
+                    .ThenBy(x => x.FiscalPeriod.FiscalQuarter ?? 0)
+                    .ThenBy(x => x.EarningsMetric)
                     .Select(ToCsv)
-                    .Distinct()
+                    .GroupBy(x => x)
+                    .Select(x => x.Key)
                     .ToList();
 
                 var outputFileDirectory = Directory.CreateDirectory(
