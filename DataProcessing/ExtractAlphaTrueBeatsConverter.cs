@@ -1,3 +1,19 @@
+/*
+ * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+ * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+*/
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -59,7 +75,10 @@ namespace QuantConnect.DataProcessing
             DirectoryInfo existingDataDirectory,
             DirectoryInfo outputDataDataDirectory)
         {
+            // Processing date is only used within this class and does not affect any behavior
+            // at all unless you call the ExtractAlphaTrueBeatsConverter.Convert() function.
             _processingDate = processingDate;
+            
             RawDataDirectory = rawDataDirectory;
             ExistingDataDirectory = existingDataDirectory;
             OutputDataDirectory = outputDataDataDirectory;
@@ -71,9 +90,9 @@ namespace QuantConnect.DataProcessing
         public virtual void Convert()
         {
             var processingData = ParseFiscalPeriods(_processingDate);
-
-            ParseTrueBeats(processingData, _processingDate);
-            WriteToFile(processingData, _processingDate);
+            var outputData = ParseTrueBeats(processingData, _processingDate);
+            
+            WriteToFile(outputData, _processingDate);
         }
 
         /// <summary>
@@ -320,6 +339,8 @@ namespace QuantConnect.DataProcessing
         /// <param name="processingDate">Processing date</param>
         protected void WriteToFile(Dictionary<string, List<ExtractAlphaTrueBeat>> processingData, DateTime processingDate)
         {
+            Log.Trace($"ExtractAlphaTrueBeatsConverter.WriteToFile(): Begin writing processed data for {processingData.Count} tickers to disk for date: {processingDate:yyyy-MM-dd}");
+            
             foreach (var kvp in processingData)
             {
                 var ticker = kvp.Key;
@@ -349,20 +370,12 @@ namespace QuantConnect.DataProcessing
                         .ToList();
                 }
 
+                outputData.AddRange(trueBeatData);
                 var outputDataLines = outputData
+                    .OrderBy(x => x.Time)
                     .Select(ToCsv)
+                    .Distinct()
                     .ToList();
-                   
-                var existingDataLinesSet = outputDataLines.ToHashSet();
-
-                foreach (var trueBeat in trueBeatData)
-                {
-                    var csvLine = ToCsv(trueBeat);
-                    if (existingDataLinesSet.Add(csvLine))
-                    {
-                        outputDataLines.Add(csvLine);
-                    }
-                }
 
                 var outputFileDirectory = Directory.CreateDirectory(
                     Path.Combine(

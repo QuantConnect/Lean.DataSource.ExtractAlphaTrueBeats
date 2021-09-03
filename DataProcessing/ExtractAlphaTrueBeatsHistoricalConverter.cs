@@ -1,8 +1,25 @@
+/*
+ * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+ * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+*/
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using QuantConnect.Configuration;
 using QuantConnect.DataSource;
 using QuantConnect.Logging;
 
@@ -20,8 +37,8 @@ namespace QuantConnect.DataProcessing
         /// <param name="rawDataDirectory"></param>
         /// <param name="existingDataDirectory"></param>
         /// <param name="outputDataDataDirectory"></param>
-        public ExtractAlphaTrueBeatsHistoricalConverter(DateTime processingDate, DirectoryInfo rawDataDirectory, DirectoryInfo existingDataDirectory, DirectoryInfo outputDataDataDirectory) 
-            : base(processingDate, rawDataDirectory, existingDataDirectory, outputDataDataDirectory)
+        public ExtractAlphaTrueBeatsHistoricalConverter(DirectoryInfo rawDataDirectory, DirectoryInfo existingDataDirectory, DirectoryInfo outputDataDataDirectory) 
+            : base(DateTime.UtcNow.Date, rawDataDirectory, existingDataDirectory, outputDataDataDirectory)
         {
         }
 
@@ -32,9 +49,14 @@ namespace QuantConnect.DataProcessing
         /// <exception cref="Exception">Historical data for fiscal periods was not found.</exception>
         public override void Convert()
         {
-            var startDate = new DateTime(2002, 1, 1);
-            var endDate = new DateTime(2021, 1, 31);
+            var startDateValue = Config.Get("historical-processing-start-date", "2002-01-01");
+            var endDateValue = Config.Get("historical-processing-end-date", "2021-02-01");
+
+            var startDate = Parse.DateTimeExact(startDateValue, "yyyy-MM-dd", DateTimeStyles.None);
+            var endDate = Parse.DateTimeExact(endDateValue, "yyyy-MM-dd", DateTimeStyles.None);
             
+            // Split all of the historical data to disk to avoid running out of memory and allow for
+            // code re-use of the base ExtractAlphaTrueBeatsConverter.
             ConvertHistoricalData(startDate);
             
             var currentProcessingDate = startDate;
@@ -62,7 +84,12 @@ namespace QuantConnect.DataProcessing
                 {
                     foreach (var trueBeat in trueBeats)
                     {
-                        // Let's reset any values we previously set back to the default
+                        // Let's reset any values we previously set back to the default.
+                        // We rely on ExpertBeat/TrendBeat/ManagementBeat to determine if there
+                        // has been any duplicate data points for a single day.
+                        // Unlikely, but in case a piece of data only appears in one dataset (All/FQ1) and not the other,
+                        // resetting these values to the default would mimic the behavior of a newly
+                        // initialized object, resulting in the correct outputted values.
                         trueBeat.AnalystEstimatesCount = default;
                         trueBeat.TrueBeat = default;
                         
