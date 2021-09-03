@@ -15,8 +15,20 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Checkout Lean
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.ref }}
+          repository: QuantConnect/Lean
+          path: Lean
+      - name: Move Lean
+        run: mv Lean ../Lean
+
       - name: BuildDataSource
         run: dotnet build ./QuantConnect.DataSource.csproj /p:Configuration=Release /v:quiet /p:WarningLevel=1
+
+      - name: BuildDataProcessing
+        run: dotnet build ./DataProcessing/DataProcessing.csproj /p:Configuration=Release /v:quiet /p:WarningLevel=1
 
       - name: BuildTests
         run: dotnet build ./tests/Tests.csproj /p:Configuration=Release /v:quiet /p:WarningLevel=1

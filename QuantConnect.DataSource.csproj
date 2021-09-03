@@ -8,7 +8,6 @@
     <DocumentationFile>$(OutputPath)\QuantConnect.DataSource.ExtractAlphaTrueBeats.xml</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="QuantConnect.Common" Version="2.5.*" />
     <PackageReference Include="protobuf-net" Version="3.0.29" />
   </ItemGroup>
 
@@ -21,6 +20,10 @@
     <None Remove="process.sample.ipynb" />
     <None Remove="process.sample.py" />
     <None Remove="process.sample.sh" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <ProjectReference Include="..\Lean\Common\QuantConnect.csproj" />
   </ItemGroup>
 
 </Project>

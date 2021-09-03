@@ -157,7 +157,7 @@ namespace QuantConnect.DataProcessing
                             // and the TrueBeat calculation fluctuates between two numbers.
                             if (_duplicateFQ1DataTickers.Add(ticker))
                             {
-                                Log.Error($"ExtractAlphaTrueBeatsConverter.ParseTrueBeats(): Duplicate data encountered in FQ1 dataset for ticker: {ticker} - skipping");
+                                Log.Error($"ExtractAlphaTrueBeatsConverter.ParseTrueBeats(): Duplicate data encountered in FQ1 {earningsMetric.ToString()} dataset for ticker: {ticker} - skipping");
                             }
 
                             continue;
