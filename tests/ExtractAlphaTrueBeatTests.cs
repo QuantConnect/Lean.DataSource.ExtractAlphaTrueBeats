@@ -27,7 +27,7 @@ using QuantConnect.DataSource;
 namespace QuantConnect.DataLibrary.Tests
 {
     [TestFixture]
-    public class MyCustomDataTypeTests
+    public class ExtractAlphaTrueBeatTests 
     {
         [Test]
         public void JsonRoundTrip()
@@ -87,12 +87,28 @@ namespace QuantConnect.DataLibrary.Tests
 
         private BaseData CreateNewInstance()
         {
-            return new MyCustomDataType
+            return new ExtractAlphaTrueBeat
             {
+                FiscalPeriod = new ExtractAlphaFiscalPeriod
+                {
+                    FiscalYear = 2021,
+                    FiscalQuarter = 2,
+                    End = new DateTime(2021, 9, 30),
+                    ExpectedReportDate = new DateTime(2021, 11, 5)
+                },
+                
+                EarningsMetric = ExtractAlphaTrueBeatEarningsMetric.EPS,
+                
+                AnalystEstimatesCount = 10,
+                TrueBeat = 0.05m,
+                
+                ExpertBeat = 0.01m,
+                TrendBeat = 0.02m,
+                ManagementBeat = 0.02m,
+                
                 Symbol = Symbol.Empty,
                 Time = DateTime.Today,
                 DataType = MarketDataType.Base,
-                SomeCustomProperty = "This is some market related information"
             };
         }
     }

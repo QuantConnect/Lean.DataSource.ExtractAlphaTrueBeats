@@ -1,0 +1,232 @@
+/*
+ * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
+ * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+*/
+
+using System;
+using System.Globalization;
+using System.IO;
+using NodaTime;
+using QuantConnect.Data;
+
+namespace QuantConnect.DataSource
+{
+    /// <summary>
+    /// EPS/Revenue earnings surprise forecasting for upcoming financial reports released
+    /// by regulatory agencies (e.g. United States SEC)
+    /// </summary>
+    public class ExtractAlphaTrueBeat : BaseData
+    {
+        /// <summary>
+        /// The fiscal period that is being forecasted
+        /// </summary>
+        public ExtractAlphaFiscalPeriod FiscalPeriod { get; set; }
+
+        /// <summary>
+        /// The earnings metric being forecasted (e.g. EPS, revenue)
+        /// </summary>
+        public ExtractAlphaTrueBeatEarningsMetric EarningsMetric { get; set; }
+
+        /// <summary>
+        /// The number of analyst estimates that the <see cref="TrueBeat" /> used in its calculation
+        /// </summary>
+        public int AnalystEstimatesCount { get; set; }
+
+        /// <summary>
+        /// The forecasted earnings surprise percentage, relative to consensus estimates.
+        /// TrueBeat is calculated as the total sum of the <see cref="ExpertBeat"/>, <see cref="TrendBeat"/>, and <see cref="ManagementBeat"/> metrics.
+        /// </summary>
+        /// <remarks>Percentages are provided as the decimal representation of a percent (0.01 == 1%)</remarks>
+        public decimal TrueBeat { get; set; }
+        
+        /// <summary>
+        /// The component of <see cref="TrueBeat"/> that is derived from top analyst estimates
+        /// </summary>
+        /// <remarks>Percentages are provided as the decimal representation of a percent (0.01 == 1%)</remarks>
+        public decimal? ExpertBeat { get; set; }
+        
+        /// <summary>
+        /// The component of <see cref="TrueBeat"/> that is derived from trends in stock and peer surprises
+        /// </summary>
+        /// <remarks>Percentages are provided as the decimal representation of a percent (0.01 == 1%)</remarks>
+        public decimal? TrendBeat { get; set; }
+        
+        /// <summary>
+        /// The component of <see cref="TrueBeat"/> that is derived from management activity (e.g. guidance)
+        /// </summary>
+        /// <remarks>Percentages are provided as the decimal representation of a percent (0.01 == 1%)</remarks>
+        public decimal? ManagementBeat { get; set; }
+
+        /// <summary>
+        /// The time that the data became available to the algorithm
+        /// </summary>
+        public override DateTime EndTime { get; set; }
+        
+        /// <summary>
+        /// Return the URL string source of the file. This will be converted to a stream
+        /// </summary>
+        /// <param name="config">Configuration object</param>
+        /// <param name="date">Date of this source file</param>
+        /// <param name="isLiveMode">true if we're in live mode, false for backtesting mode</param>
+        /// <returns>String URL of source file.</returns>
+        public override SubscriptionDataSource GetSource(SubscriptionDataConfig config, DateTime date, bool isLiveMode)
+        {
+            return new SubscriptionDataSource(
+                Path.Combine(
+                    Globals.DataFolder,
+                    "alternative",
+                    "extractalpha",
+                    "truebeats",
+                    $"{config.Symbol.Value.ToLowerInvariant()}.csv"),
+                SubscriptionTransportMedium.LocalFile,
+                FileFormat.Csv);
+        }
+
+        /// <summary>
+        /// Reader converts each line of the data source into BaseData objects. Each data type creates its own factory method, and returns a new instance of the object
+        /// each time it is called. The returned object is assumed to be time stamped in the config.ExchangeTimeZone.
+        /// </summary>
+        /// <param name="config">Subscription data config setup object</param>
+        /// <param name="line">Line of the source document</param>
+        /// <param name="date">Date of the requested data</param>
+        /// <param name="isLiveMode">true if we're in live mode, false for backtesting mode</param>
+        /// <returns>Instance of the T:BaseData object generated by this line of the CSV</returns>
+        public override BaseData Reader(SubscriptionDataConfig config, string line, DateTime date, bool isLiveMode)
+        {
+            var csv = line.Split(',');
+
+            var time = Parse.DateTimeExact(csv[0], "yyyyMMdd", DateTimeStyles.None);
+            var earningsMetric = (ExtractAlphaTrueBeatEarningsMetric)Enum.Parse(typeof(ExtractAlphaTrueBeatEarningsMetric), csv[1], true);
+            var analystCount = Parse.Int(csv[2]);
+            var trueBeat = Parse.Decimal(csv[3], NumberStyles.Any);
+
+            var expertBeat = !string.IsNullOrEmpty(csv[4])
+                ? Parse.Decimal(csv[4], NumberStyles.Any)
+                : (decimal?) null;
+
+            var trendBeat = !string.IsNullOrEmpty(csv[5])
+                ? Parse.Decimal(csv[5], NumberStyles.Any)
+                : (decimal?) null;
+
+            var managementBeat = !string.IsNullOrEmpty(csv[6])
+                ? Parse.Decimal(csv[6], NumberStyles.Any)
+                : (decimal?) null;
+
+            var fiscalYear = Parse.Int(csv[7]);
+
+            var fiscalQuarter = !string.IsNullOrEmpty(csv[8])
+                ? Parse.Int(csv[8])
+                : (int?) null;
+
+            var fiscalPeriodEnd = !string.IsNullOrEmpty(csv[9])
+                ? Parse.DateTimeExact(csv[9], "yyyyMMdd", DateTimeStyles.None)
+                : (DateTime?) null;
+
+            var expectedReportDate = !string.IsNullOrEmpty(csv[10])
+                ? Parse.DateTimeExact(csv[10], "yyyyMMdd", DateTimeStyles.None)
+                : (DateTime?) null;
+
+            return new ExtractAlphaTrueBeat
+            {
+                EarningsMetric = earningsMetric,
+                FiscalPeriod = new ExtractAlphaFiscalPeriod
+                {
+                    FiscalYear = fiscalYear,
+                    FiscalQuarter = fiscalQuarter,
+                    End = fiscalPeriodEnd,
+                    ExpectedReportDate = expectedReportDate
+                },
+
+                AnalystEstimatesCount = analystCount,
+                TrueBeat = trueBeat,
+
+                ExpertBeat = expertBeat,
+                TrendBeat = trendBeat,
+                ManagementBeat = managementBeat,
+                
+                Time = time,
+                // Data will be made available to trade with before 12:30:00 Eastern Time on days
+                // that there is data. This is the upper bound on the delivery of the data in realtime.
+                EndTime = time.Date.AddHours(12).AddMinutes(30),
+                Symbol = config.Symbol
+            };
+        }
+
+        /// <summary>
+        /// Return a new instance clone of this object, used in fill forward
+        /// </summary>
+        /// <returns>A clone of the current object</returns>
+        public override BaseData Clone()
+        {
+            return new ExtractAlphaTrueBeat
+            {
+                EarningsMetric = EarningsMetric,
+                FiscalPeriod = FiscalPeriod,
+
+                AnalystEstimatesCount = AnalystEstimatesCount,
+                TrueBeat = TrueBeat,
+
+                ExpertBeat = ExpertBeat,
+                TrendBeat = TrendBeat,
+                ManagementBeat = ManagementBeat,
+                
+                Time = Time,
+                EndTime = EndTime,
+                Symbol = Symbol
+            };
+        }
+
+        /// <summary>Indicates if there is support for mapping</summary>
+        /// <remarks>Relies on the <see cref="P:QuantConnect.Data.BaseData.Symbol" /> property value</remarks>
+        /// <returns>True indicates mapping should be used</returns>
+        public override bool RequiresMapping()
+        {
+            return true;
+        }
+
+        /// <summary>Indicates that the data set is expected to be sparse</summary>
+        /// <remarks>Relies on the <see cref="P:QuantConnect.Data.BaseData.Symbol" /> property value</remarks>
+        /// <remarks>This is a method and not a property so that python
+        /// custom data types can override it</remarks>
+        /// <returns>True if the data set represented by this type is expected to be sparse</returns>
+        public override bool IsSparseData()
+        {
+            return true;
+        }
+
+        /// <summary>
+        /// Specifies the data time zone for this data type. This is useful for custom data types
+        /// </summary>
+        /// <remarks>Will throw <see cref="T:System.InvalidOperationException" /> for security types
+        /// other than <see cref="F:QuantConnect.SecurityType.Base" /></remarks>
+        /// <returns>The <see cref="T:NodaTime.DateTimeZone" /> of this data type</returns>
+        public override DateTimeZone DataTimeZone()
+        {
+            return TimeZones.NewYork;
+        }
+
+        /// <summary>
+        /// Formats a string with TrueBeat data
+        /// </summary>
+        /// <returns>string containing TrueBeat information</returns>
+        public override string ToString()
+        {
+            return $"Fiscal Year (FY): {FiscalPeriod.FiscalYear} " +
+                   $"{(FiscalPeriod.Quarterly ? $"- Fiscal Quarter: {FiscalPeriod.FiscalQuarter} " : string.Empty)}" +
+                   $"Symbol: {Symbol} " +
+                   $"Number of Analyst Estimates: {AnalystEstimatesCount} " +
+                   $"TrueBeat: {TrueBeat}";
+        }
+    }
+}
