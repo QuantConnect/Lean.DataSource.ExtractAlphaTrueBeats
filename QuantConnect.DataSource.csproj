@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="protobuf-net" Version="3.0.29" />
+    <PackageReference Include="NodaTime" Version="3.0.5" />
   </ItemGroup>
 
   <ItemGroup>

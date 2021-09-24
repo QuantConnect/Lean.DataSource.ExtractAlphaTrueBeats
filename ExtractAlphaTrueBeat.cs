@@ -15,10 +15,10 @@
 */
 
 using System;
-using System.Globalization;
-using System.IO;
 using NodaTime;
+using System.IO;
 using QuantConnect.Data;
+using System.Globalization;
 
 namespace QuantConnect.DataSource
 {
