@@ -23,13 +23,10 @@ using QuantConnect.DataSource;
 namespace QuantConnect.DataLibrary.Tests
 {
     /// <summary>
-    /// Example algorithm using the custom data type as a source of alpha
+    /// Example algorithm using the ExtractAlphaTrueBeats type as a source of alpha
     /// </summary>
     public class CustomDataAlgorithm : QCAlgorithm
     {
-        private Symbol _customDataSymbol;
-        private Symbol _equitySymbol;
-
         /// <summary>
         /// Initialise the data and resolution required, as well as the cash and start-end dates for your algorithm. All algorithms must initialized.
         /// </summary>
@@ -37,8 +34,9 @@ namespace QuantConnect.DataLibrary.Tests
         {
             SetStartDate(2013, 10, 07);  //Set Start Date
             SetEndDate(2013, 10, 11);    //Set End Date
-            _equitySymbol = AddEquity("SPY").Symbol;
-            _customDataSymbol = AddData<MyCustomDataType>(_equitySymbol).Symbol;
+
+            var equitySymbol = AddEquity("SPY").Symbol;
+            AddData<ExtractAlphaTrueBeats>(equitySymbol);
         }
 
         /// <summary>
@@ -47,17 +45,23 @@ namespace QuantConnect.DataLibrary.Tests
         /// <param name="slice">Slice object keyed by symbol containing the stock data</param>
         public override void OnData(Slice slice)
         {
-            var data = slice.Get<MyCustomDataType>();
-            if (!data.IsNullOrEmpty())
+            var data = slice.Get<ExtractAlphaTrueBeats>();
+            if (data != null)
             {
-                // based on the custom data property we will buy or short the underlying equity
-                if (data[_customDataSymbol].SomeCustomProperty == "buy")
+                foreach (var trueBeats in data.Values)
                 {
-                    SetHoldings(_equitySymbol, 1);
-                }
-                else if (data[_customDataSymbol].SomeCustomProperty == "sell")
-                {
-                    SetHoldings(_equitySymbol, -1);
+                    Log($"{Time} {trueBeats}");
+                    foreach (dynamic trueBeat in trueBeats)
+                    {
+                        if(trueBeat.FiscalPeriod.Annual && trueBeat.TrueBeat > 0.5m)
+                        {
+                            SetHoldings("AAPL", 1);
+                        }
+                        else
+                        {
+                            Liquidate();
+                        }
+                    }
                 }
             }
         }

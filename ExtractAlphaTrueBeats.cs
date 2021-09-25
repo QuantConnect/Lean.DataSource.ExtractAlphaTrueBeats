@@ -16,9 +16,10 @@
 
 using System;
 using NodaTime;
+using System.IO;
 using System.Linq;
-using Fasterflect;
 using QuantConnect.Data;
+using QuantConnect.Util;
 using QuantConnect.Data.UniverseSelection;
 
 namespace QuantConnect.DataSource
@@ -45,6 +46,26 @@ namespace QuantConnect.DataSource
         }
 
         /// <summary>
+        /// Return the URL string source of the file. This will be converted to a stream
+        /// </summary>
+        /// <param name="config">Configuration object</param>
+        /// <param name="date">Date of this source file</param>
+        /// <param name="isLiveMode">true if we're in live mode, false for backtesting mode</param>
+        /// <returns>String URL of source file.</returns>
+        public override SubscriptionDataSource GetSource(SubscriptionDataConfig config, DateTime date, bool isLiveMode)
+        {
+            return new SubscriptionDataSource(
+                Path.Combine(
+                    Globals.DataFolder,
+                    "alternative",
+                    "extractalpha",
+                    "truebeats",
+                    $"{config.Symbol.Value.ToLowerInvariant()}.csv"),
+                SubscriptionTransportMedium.LocalFile,
+                FileFormat.FoldingCollection);
+        }
+
+        /// <summary>
         /// Return a new instance clone of this object, used in fill forward
         /// </summary>
         /// <returns>A clone of the current object</returns>
@@ -55,7 +76,7 @@ namespace QuantConnect.DataSource
                 Time = Time,
                 Symbol = Symbol,
                 EndTime = EndTime,
-                Data = Data.DeepClone()
+                Data = Data?.ToList(point => point.Clone())
             };
         }
 
