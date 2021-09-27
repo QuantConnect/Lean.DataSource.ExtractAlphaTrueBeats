@@ -15,13 +15,13 @@
 */
 
 using System;
-using System.Globalization;
-using System.IO;
 using NodaTime;
 using QuantConnect.Data;
+using System.Globalization;
 
 namespace QuantConnect.DataSource
 {
+
     /// <summary>
     /// EPS/Revenue earnings surprise forecasting for upcoming financial reports released
     /// by regulatory agencies (e.g. United States SEC)
@@ -72,26 +72,6 @@ namespace QuantConnect.DataSource
         /// The time that the data became available to the algorithm
         /// </summary>
         public override DateTime EndTime { get; set; }
-        
-        /// <summary>
-        /// Return the URL string source of the file. This will be converted to a stream
-        /// </summary>
-        /// <param name="config">Configuration object</param>
-        /// <param name="date">Date of this source file</param>
-        /// <param name="isLiveMode">true if we're in live mode, false for backtesting mode</param>
-        /// <returns>String URL of source file.</returns>
-        public override SubscriptionDataSource GetSource(SubscriptionDataConfig config, DateTime date, bool isLiveMode)
-        {
-            return new SubscriptionDataSource(
-                Path.Combine(
-                    Globals.DataFolder,
-                    "alternative",
-                    "extractalpha",
-                    "truebeats",
-                    $"{config.Symbol.Value.ToLowerInvariant()}.csv"),
-                SubscriptionTransportMedium.LocalFile,
-                FileFormat.Csv);
-        }
 
         /// <summary>
         /// Reader converts each line of the data source into BaseData objects. Each data type creates its own factory method, and returns a new instance of the object

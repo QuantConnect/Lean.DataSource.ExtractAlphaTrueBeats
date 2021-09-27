@@ -9,13 +9,14 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="protobuf-net" Version="3.0.29" />
+    <PackageReference Include="NodaTime" Version="3.0.5" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Remove="tests\**" />
     <EmbeddedResource Remove="tests\**" />
     <None Remove="tests\**" />
-    <Compile Remove="Demonstration.cs" />
+    <Compile Remove="ExtractAlphaTrueBeatsAlgorithm.cs" />
     <None Remove=".gitignore" />
     <None Remove="process.sample.ipynb" />
     <None Remove="process.sample.py" />
