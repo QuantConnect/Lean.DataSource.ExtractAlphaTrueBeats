@@ -25,7 +25,7 @@ namespace QuantConnect.DataLibrary.Tests
     /// <summary>
     /// Example algorithm using the ExtractAlphaTrueBeats type as a source of alpha
     /// </summary>
-    public class CustomDataAlgorithm : QCAlgorithm
+    public class ExtractAlphaTrueBeatsAlgorithm : QCAlgorithm
     {
         /// <summary>
         /// Initialise the data and resolution required, as well as the cash and start-end dates for your algorithm. All algorithms must initialized.
@@ -51,9 +51,9 @@ namespace QuantConnect.DataLibrary.Tests
                 foreach (var trueBeats in data.Values)
                 {
                     Log($"{Time} {trueBeats}");
-                    foreach (dynamic trueBeat in trueBeats)
+                    foreach (ExtractAlphaTrueBeat trueBeat in trueBeats)
                     {
-                        if(trueBeat.FiscalPeriod.Annual && trueBeat.TrueBeat > 0.5m)
+                        if(trueBeat.FiscalPeriod.Annual && trueBeat.TrueBeat > 0.05m)
                         {
                             SetHoldings("AAPL", 1);
                         }
