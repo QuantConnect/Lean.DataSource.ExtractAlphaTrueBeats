@@ -20,6 +20,7 @@ using System.IO;
 using System.Linq;
 using QuantConnect.Data;
 using QuantConnect.Util;
+using System.Collections.Generic;
 using QuantConnect.Data.UniverseSelection;
 
 namespace QuantConnect.DataSource
@@ -78,6 +79,35 @@ namespace QuantConnect.DataSource
                 EndTime = EndTime,
                 Data = Data?.ToList(point => point.Clone())
             };
+        }
+
+        /// <summary>
+        /// Adds a new data point to this collection
+        /// </summary>
+        /// <param name="newDataPoint">The new data point to add</param>
+        public override void Add(BaseData newDataPoint)
+        {
+            if(!Data.Any(data =>{
+                var trueBeat = data as ExtractAlphaTrueBeat;
+                var newTrueBeat = newDataPoint as ExtractAlphaTrueBeat;
+                return trueBeat.FiscalPeriod.FiscalYear == newTrueBeat.FiscalPeriod.FiscalYear
+                       && trueBeat.FiscalPeriod.FiscalQuarter == newTrueBeat.FiscalPeriod.FiscalQuarter;
+            }))
+            {
+                base.Add(newDataPoint);
+            }
+        }
+
+        /// <summary>
+        /// Adds a new data points to this collection
+        /// </summary>
+        /// <param name="newDataPoints">The new data points to add</param>
+        public override void AddRange(IEnumerable<BaseData> newDataPoints)
+        {
+            foreach (var newDataPoint in newDataPoints)
+            {
+                Add(newDataPoint);
+            }
         }
 
         /// <summary>Indicates if there is support for mapping</summary>

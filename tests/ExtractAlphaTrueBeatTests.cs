@@ -69,6 +69,20 @@ namespace QuantConnect.DataLibrary.Tests
             AssertAreEqual(expected, result);
         }
 
+        [TestCase(2)]
+        [TestCase(null)]
+        public void FiltersDuplicates(int? fiscalQuarter = 2)
+        {
+            var instanceA = CreateNewInstance(fiscalQuarter);
+            var instanceB = CreateNewInstance(fiscalQuarter);
+            var extra = new ExtractAlphaTrueBeats();
+
+            extra.Add(instanceA);
+            extra.Add(instanceB);
+
+            Assert.AreEqual(1, extra.Count());
+        }
+
         private void AssertAreEqual(object expected, object result, bool filterByCustomAttributes = false)
         {
             foreach (var propertyInfo in expected.GetType().GetProperties())
@@ -85,14 +99,14 @@ namespace QuantConnect.DataLibrary.Tests
             }
         }
 
-        private BaseData CreateNewInstance()
+        private BaseData CreateNewInstance(int? fiscalQuarter = 2)
         {
             return new ExtractAlphaTrueBeat
             {
                 FiscalPeriod = new ExtractAlphaFiscalPeriod
                 {
                     FiscalYear = 2021,
-                    FiscalQuarter = 2,
+                    FiscalQuarter = fiscalQuarter,
                     End = new DateTime(2021, 9, 30),
                     ExpectedReportDate = new DateTime(2021, 11, 5)
                 },
