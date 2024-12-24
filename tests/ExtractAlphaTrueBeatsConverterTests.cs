@@ -16,18 +16,26 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using QuantConnect.Data;
+using QuantConnect.Data.Auxiliary;
 using QuantConnect.DataProcessing;
 using QuantConnect.DataSource;
+using QuantConnect.Interfaces;
+using QuantConnect.Util;
 
 namespace QuantConnect.DataLibrary.Tests
 {
     [TestFixture]
     public class ExtractAlphaTrueBeatsConverterTests
     {
+        [OneTimeSetUp]
+        public void Setup()
+        {
+            Composer.Instance.GetExportedValueByTypeName<IMapFileProvider>(Configuration.Config.Get("map-file-provider", typeof(LocalDiskMapFileProvider).Name));
+        }
+
         private static List<string> _fiscalPeriodLines = new List<string>
         {
             "Date,Ticker,CUSIP,ISIN,Item,Period_Type,Fiscal_Period,Period_End_Date,Report_Date",
