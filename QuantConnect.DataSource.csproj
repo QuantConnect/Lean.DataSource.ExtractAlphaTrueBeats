@@ -1,15 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>QuantConnect.DataSource</RootNamespace>
     <AssemblyName>QuantConnect.DataSource.ExtractAlphaTrueBeats</AssemblyName>
     <OutputPath>bin\$(Configuration)</OutputPath>
     <DocumentationFile>$(OutputPath)\QuantConnect.DataSource.ExtractAlphaTrueBeats.xml</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="protobuf-net" Version="3.0.29" />
     <PackageReference Include="NodaTime" Version="3.0.5" />
+    <PackageReference Include="QuantConnect.Common" Version="2.5.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,10 +21,6 @@
     <None Remove="process.sample.ipynb" />
     <None Remove="process.sample.py" />
     <None Remove="process.sample.sh" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <ProjectReference Include="..\Lean\Common\QuantConnect.csproj" />
   </ItemGroup>
 
 </Project>
